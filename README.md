@@ -2,7 +2,10 @@
 
 **Prove your credentials. Not your identity.**
 
-VeriCred is a decentralized credential verification protocol built on Midnight that enables healthcare professionals to prove their licenses and certifications without revealing their identity or personal data. It uses Midnight's selective disclosure and dual-ledger model to make privacy the default while still providing cryptographic verification to employers, hospitals, and regulators.
+VeriCred is a decentralized credential verification protocol built on Midnight.
+Healthcare professionals — doctors, nurses, therapists — can prove their
+licenses and certifications to employers, hospitals, and regulators **without
+revealing their identity, license number, or personal data.**
 
 ## Table of Contents
 
@@ -14,6 +17,11 @@ VeriCred is a decentralized credential verification protocol built on Midnight t
 - [Testing](#testing)
 - [Project Structure](#project-structure)
 - [Contract Design](#contract-design)
+- [Wave 2 Status](#wave-2-status)
+- [Circuit Summary](#circuit-summary)
+- [Known Limitation](#known-limitations)
+- [Roadmap](#roadmap)
+- [License](#license)
 
 ## Architecture
 ```plaintext
@@ -163,22 +171,6 @@ vericred/
 │   │   ├── vericred.test.ts      # Simulation tests
 │   │   └── privacy.test.ts       # Privacy leak tests
 │   └── managed/                  # Compiled circuit artifacts
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── IssuerDashboard.tsx
-│   │   │   ├── WalletView.tsx
-│   │   │   └── VerifierPortal.tsx
-│   │   ├── lib/
-│   │   │   ├── midnight.ts       # Midnight.js client setup
-│   │   │   ├── witness.ts        # Witness provider (private data)
-│   │   │   └── proof.ts          # Proof generation helpers
-│   │   └── App.tsx
-│   └── package.json
-├── issuer-service/
-│   ├── src/
-│   │   └── server.ts             # Simulated medical board API
-│   └── package.json
 ├── scripts/
 │   ├── deploy.ts                 # Deploy contract to devnet
 │   └── seed-issuers.ts           # Register demo issuers
@@ -196,6 +188,19 @@ export ledger revocationRoot: Bytes<32>;
 export ledger verificationCount: Counter;
 ```
 
+#### What the public ledger holds
+| Field |	Type |	Why public |
+|-------|------|-------------|
+| `governancePub` |	`Bytes<32>` |	trust anchor |
+| `domainSeparator` |	`Bytes<32>` |	replay protection |
+| `issuers` |	`Set<Bytes<32>>` |	verifiers must know who is trusted |
+| `issuedBy` |	`Map<Bytes<32>,Bytes<32>>` |	lets an issuer prove authorship |
+| `revoked` |	`Set<Bytes<32>>` |	revocation must be checkable |
+| `verificationCount` |	`Counter` |	analytics, zero PII |
+
+#### What never touches the chain
+License number · issuing board · issue date · expiry date · holder identity.
+
 ### Witnesses (Private State)
 ```compact
 witness getCredential(): Credential;
@@ -211,7 +216,53 @@ witness getIssuerSecretKey(): Bytes<32>;
 | revokeCredential | Issuer | Revocation commitment | Holder identity, credential link |
 
 ### Key privacy invariant
-No witness-derived value reaches the public ledger without an explicit disclose() call. The privacy.test.ts suite statically verifies this by attempting to compile a variant of the contract with a missing disclose() and asserting that the compiler rejects it.
+> No witness-derived value reaches the public ledger without an explicit `disclose()` call. The Compact compiler enforces this.
+The `privacy.test.ts` suite verifies this adversarially: it compiles a
+deliberately-broken contract and asserts the compiler rejects it.
+
+## Wave 2 status
+
+**Wave theme:** *Prove the privacy model works end-to-end in a CLI environment.*
+
+| Deliverable             | Status |
+|-------------------------|--------|
+| `vericred.compact`      | ✅ Compiles with Compact 0.14 |
+| Circuits                | ✅ 3 (`issueCredential`, `proveCredential`, `revokeCredential`) |
+| CLI demo                | ✅ `yarn demo` — runs in under 5 minutes |
+| Tests                   | ✅ 17 passing (11 functional, 6 adversarial privacy) |
+| License                 | ✅ Apache 2.0 |
+| GitHub topic            | ✅ `midnightntwrk` |
+
+Wave 2 deliberately deferred the frontend. The priority was to get the privacy
+architecture right — a flawed witness/disclosure boundary is expensive to fix
+once a UI is built on top of it.
+
+## Circuit summary
+| Circuit |	Called by |	Discloses |	Keeps private |
+|---------|-----------|-----------|---------------|
+| `issueCredential` |	Issuer |	`commitment`, `issuerPub` |	license number,  |board, dates
+| `proveCredential` |	Holder |	`commitment`, `nullifier`, `true` |	credential  |contents, identity
+| `revokeCredential` |	Issuer |	`commitment` |	issuer secret, holder link |
+
+# Known limitations
+1. The credential commitment is disclosed during `proveCredential` so the
+circuit can check the public revocation set. This makes two proofs by the
+same holder linkable to each other (though not to a person). Wave 3
+replaces the revocation set with a sparse Merkle tree and proves
+non-membership without disclosing the commitment.
+2. No frontend. Wave 3 ships the React UI + Lace wallet integration.
+3. No encryption for credential delivery. The issuer sends the credential
+off-chain. Wave 3 adds an encrypted on-chain inbox.
+
+See `docs/privacy-model.md` for the full threat model.
+
+## Roadmap
+- Wave 2 — React frontend, Lace wallet, sparse Merkle revocation, testnet
+deployment, 43 tests.
+- Wave 3 — multi-issuer federation, mobile proof generation, verifier SDK, pilot with a regional nursing association.
+
+## License
+Apache License 2.0. See LICENSE.
 
 ---
 
