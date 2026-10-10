@@ -350,6 +350,7 @@ export function recordDeployment(
   network: NetworkId,
   address: string,
   deployer: string,
+  secret: string,
   opts: FsOptions = {},
 ): void {
   const cwd = opts.cwd ?? process.cwd();
@@ -362,7 +363,7 @@ export function recordDeployment(
   };
   next.deployments = {
     ...next.deployments,
-    [network]: { address, deployer, deployedAt: new Date().toISOString() },
+    [network]: { address, deployer, secret, deployedAt: new Date().toISOString() },
   };
   saveState(next, { cwd });
 }
