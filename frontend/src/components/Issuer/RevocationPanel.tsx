@@ -12,9 +12,8 @@ export default function RevocationPanel() {
   const [result, setResult] = useState('');
   const [error, setError] = useState('');
   const [receipt, setReceipt] = useState(false);
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault(); setError(''); setResult(''); setReceipt(false);
-    if (appMode !== 'demo') { setError('Testnet revocation is disabled until a reviewed contract adapter is available.'); return; }
     try { revoke(commitment); setResult(commitment.trim()); setReceipt(true); setCommitment(''); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not revoke credential.'); }
   };
@@ -30,7 +29,7 @@ export default function RevocationPanel() {
       </label>
       {error && <p role="alert" className="flex items-start gap-2 rounded-lg border border-red-400/20 bg-red-400/5 p-3 text-[11px] leading-4 text-red-200"><ShieldAlert size={14} className="mt-0.5 shrink-0" />{error}</p>}
       {result && <div role="status" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-green-400/20 bg-green-400/5 p-3 text-[11px] text-green-200"><span className="inline-flex items-center gap-1.5"><CircleCheck size={14} /> Revoked locally</span><CopyButton value={result} label="Copy commitment" /></div>}
-      <button disabled={appMode !== 'demo' || !commitment.trim()} className="btn-quiet flex h-10 w-full items-center justify-center gap-2 rounded-lg text-xs font-extrabold text-red-200"><Ban size={14} /> Revoke commitment</button>
+      <button disabled={!commitment.trim()} className="btn-quiet flex h-10 w-full items-center justify-center gap-2 rounded-lg text-xs font-extrabold text-red-200"><Ban size={14} /> Revoke commitment</button>
     </form>
     {receipt && <div className="mt-4"><PrivacyReceipt circuit="revokeCredential" /></div>}
   </section>;

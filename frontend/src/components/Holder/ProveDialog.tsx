@@ -48,7 +48,6 @@ export default function ProveDialog({ credential, onClose }: { credential: Crede
         <button type="button" autoFocus onClick={onClose} aria-label="Close proof dialog" className="btn-quiet grid h-9 w-9 shrink-0 place-items-center rounded-lg"><X size={16} /></button>
       </div>
       {proof.attestation ? <ShareProof attestation={proof.attestation} onClose={onClose} /> : <>
-        {appMode === 'testnet' && <p className="mb-4 rounded-lg border border-red-400/20 bg-red-400/[.05] p-3 text-xs leading-5 text-red-100">Proof generation is disabled in testnet mode until generated circuit artifacts and a reviewed proving adapter are available.</p>}
         <div className="mb-4 grid gap-2 sm:grid-cols-2">{presets.map((preset, index) => <button key={preset.title} type="button" onClick={() => { setSelected(index); if (index !== 3) setType(preset.type); }} className={`rounded-xl border p-3 text-left transition ${selected === index ? 'border-indigo-400/50 bg-indigo-400/[.08]' : 'border-midnight-line bg-[#0b1220] hover:border-slate-600'}`}><p className="text-xs font-bold text-slate-200">{preset.title}</p><p className="mt-1 text-[10px] text-slate-500">{index === 3 ? 'Set a type and optional issuer' : `${preset.type} · validity required`}</p></button>)}</div>
         {selected === 3 && <div className="mb-4 grid gap-3 sm:grid-cols-2">
           <label className="text-[10px] font-bold text-slate-400">Required credential type<select value={type} onChange={(e) => setType(e.target.value as CredentialType)} className="field mt-1.5 h-10 px-3 text-xs">{['RN', 'MD', 'LPN', 'EMT', 'CUSTOM'].map((item) => <option key={item}>{item}</option>)}</select></label>
@@ -59,7 +58,7 @@ export default function ProveDialog({ credential, onClose }: { credential: Crede
         {proof.error && <p role="alert" className="mb-3 rounded-lg border border-red-400/20 bg-red-400/5 p-3 text-xs text-red-200">{proof.error}</p>}
         <div className="space-y-3">
           <ProofProgress status={proof.status} progress={proof.progress} />
-          <button type="button" disabled={building || proof.status === 'collecting' || proof.status === 'proving' || proof.status === 'serializing' || revoked || appMode !== 'demo'} onClick={() => void startProof()} className="btn-primary flex h-11 w-full items-center justify-center gap-2 rounded-lg text-xs font-extrabold"><ShieldCheck size={15} />{building || ['collecting', 'proving', 'serializing'].includes(proof.status) ? 'Preparing simulation…' : 'Generate demo proof'}</button>
+          <button type="button" disabled={building || ['collecting', 'proving', 'serializing'].includes(proof.status) || revoked} onClick={() => void startProof()} className="btn-primary flex h-11 w-full items-center justify-center gap-2 rounded-lg text-xs font-extrabold"><ShieldCheck size={15} />{building || ['collecting', 'proving', 'serializing'].includes(proof.status) ? 'Preparing simulation…' : 'Generate demo proof'}</button>
           <p className="text-center text-[9px] leading-4 text-slate-600">Simulated phases are shown for demonstration; there is no cryptographic proof server or chain transaction.</p>
         </div>
       </>}

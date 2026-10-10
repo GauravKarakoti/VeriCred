@@ -1,6 +1,9 @@
 // Orchestrator for `npm run setup`. Replaces the prior package.json chain
 // `docker compose up -d --wait && npm run compile && npm run deploy` so
 // we can branch on --network and forward it to deploy.
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { resolveNetwork, setActiveNetwork, parseNetworkFlag } from './network';
 
@@ -26,7 +29,35 @@ async function main(): Promise<void> {
   // 2. Compile the contract (network-agnostic).
   run('npm', ['run', 'compile']);
 
-  // 3. Deploy. Forward --network so deploy.ts sees the same network.
+  // 3. Automatically sync/copy all compiled ZK artifacts to frontend public keys directory
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const zkConfigPath = path.resolve(__dirname, '..', 'contracts', 'managed', 'vericred');
+  const frontendPublicKeysDir = path.resolve(__dirname, '..', 'frontend', 'public', 'keys');
+
+  if (!fs.existsSync(frontendPublicKeysDir)) {
+    fs.mkdirSync(frontendPublicKeysDir, { recursive: true });
+  }
+
+  process.stdout.write('→ Copying ZK artifacts to frontend public directory...\n');
+  if (fs.existsSync(zkConfigPath)) {
+    const searchDirs = [zkConfigPath, path.join(zkConfigPath, 'keys')];
+    for (const dir of searchDirs) {
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        for (const file of files) {
+          const srcFile = path.join(dir, file);
+          if (fs.lstatSync(srcFile).isFile()) {
+            const destFile = path.join(frontendPublicKeysDir, file);
+            fs.copyFileSync(srcFile, destFile);
+            process.stdout.write(`  Copied: ${file} -> frontend/public/keys/\n`);
+          }
+        }
+      }
+    }
+  }
+  process.stdout.write('\n');
+
+  // 4. Deploy. Forward --network so deploy.ts sees the same network.
   const deployArgs = network === 'undeployed' ? [] : ['--', '--network', network];
   run('npm', ['run', 'deploy', ...deployArgs]);
 }

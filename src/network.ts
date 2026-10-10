@@ -167,7 +167,7 @@ const ENV_OVERRIDES: Array<[keyof NetworkConfig, string]> = [
   ['indexerWS', 'MIDNIGHT_INDEXER_WS_URL'],
   ['node', 'MIDNIGHT_NODE_URL'],
   ['faucet', 'MIDNIGHT_FAUCET_URL'],
-  ['proofServer', 'MIDNIGHT_PROOF_SERVER_URL'],
+  ['proofServer', 'VITE_PROOF_SERVER_URL'],
 ];
 
 function applyEnvOverrides(base: NetworkConfig, env: NodeJS.ProcessEnv): NetworkConfig {

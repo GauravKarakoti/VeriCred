@@ -35,7 +35,7 @@ export default function CredentialCard({ credential }: { credential: Credential 
           <Tooltip content="Your identity, license number, board and expiry date remain in the private local vault."><span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-green-300"><ShieldCheck size={14} /> Private details stay local</span></Tooltip>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setOpen(!open)} className="btn-quiet inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] font-bold" aria-expanded={open}>{open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}Details</button>
-            <button type="button" disabled={appMode !== 'demo' || revoked || expired} onClick={() => setProving(true)} className="btn-primary inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[10px] font-extrabold"><Sparkles size={13} /> Prove</button>
+            <button type="button" disabled={revoked || expired} onClick={() => setProving(true)} className="btn-primary inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[10px] font-extrabold"><Sparkles size={13} /> Prove</button>
           </div>
         </div>
         {open && <div className="mt-4 rounded-xl border border-amber-400/15 bg-amber-400/[.04] p-3">

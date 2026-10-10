@@ -263,3 +263,7 @@ export circuit revokeCredential(credentialCommitment: Bytes<32>): [] {
 
   revoked.insert(c);
 }
+
+export pure circuit getIssuerPub(secret: Bytes<32>): Bytes<32> {
+    return issuerPubOf(secret);
+}

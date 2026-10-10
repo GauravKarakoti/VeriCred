@@ -9,6 +9,12 @@ const legacyKeys: Record<StoreName, string> = {
   history: 'vericred.demo.v1.history',
 };
 
+// Helper to determine if we are connecting to the real Midnight network
+function getAppMode(): 'demo' | 'testnet' {
+  const saved = localStorage.getItem('vericred.app-mode');
+  return saved === 'testnet' || (!saved && import.meta.env.VITE_MIDNIGHT_MODE === 'testnet') ? 'testnet' : 'demo';
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   if (!('indexedDB' in window)) {
     return Promise.reject(new Error('This browser does not support IndexedDB, so the local demo vault cannot be opened.'));
@@ -60,8 +66,6 @@ async function loadValue<T>(store: StoreName, fallback: T): Promise<T> {
     const current = await getFromStore<T>(db, store);
     if (current !== undefined) return current;
 
-    // One-time migration from the first demo build. Remove the unencrypted
-    // localStorage copy only after the IndexedDB write succeeds.
     const old = localStorage.getItem(legacyKeys[store]);
     if (old !== null) {
       let migrated: T;
@@ -95,8 +99,6 @@ export async function loadCredentials(): Promise<Credential[]> {
     const current = await getFromStore<Credential[]>(db, 'vault');
     if (current !== undefined) return current;
 
-    // One-time migration from the first demo build. Remove the unencrypted
-    // localStorage copy only after the IndexedDB write succeeds.
     const old = localStorage.getItem(legacyKeys.vault);
     if (old !== null) {
       let migrated: Credential[];
@@ -112,32 +114,49 @@ export async function loadCredentials(): Promise<Credential[]> {
 
     const initialized = await getFromStore<boolean>(db, 'vault', 'initialized');
     if (initialized) return [];
-    const samples = demoCredentials();
-    await saveToStore(db, 'vault', samples);
-    return samples;
+    
+    // Only inject mock credentials if the app is in offline demo mode. 
+    // If it's testnet, initialize a clean, empty vault.
+    const initialData = getAppMode() === 'testnet' ? [] : demoCredentials();
+    
+    await saveToStore(db, 'vault', initialData);
+    return initialData;
   } finally {
     db.close();
   }
 }
+
 export async function saveCredentials(credentials: Credential[]): Promise<void> {
   await saveValue('vault', credentials);
 }
+
 export async function saveCredential(credential: Credential): Promise<void> {
   const all = await loadCredentials();
   await saveCredentials([credential, ...all.filter((item) => item.id !== credential.id)]);
 }
+
 export async function loadLedger(fallback: Ledger): Promise<Ledger> {
+  // If we are on testnet, completely bypass the local DB for the ledger state 
+  // and return an empty state so the frontend knows it must fetch from the contract provider.
+  if (getAppMode() === 'testnet') {
+    return makeEmptyLedger();
+  }
   return loadValue('ledger', fallback);
 }
+
 export async function saveLedger(ledger: Ledger): Promise<void> {
+  if (getAppMode() === 'testnet') return; // Do not overwrite local cache when reading from real testnet
   await saveValue('ledger', ledger);
 }
+
 export async function loadHistory(): Promise<VerificationRecord[]> {
   return loadValue<VerificationRecord[]>('history', []);
 }
+
 export async function saveHistory(history: VerificationRecord[]): Promise<void> {
   await saveValue('history', history);
 }
+
 export async function clearVault(): Promise<void> {
   const db = await openDatabase();
   try {
@@ -148,6 +167,7 @@ export async function clearVault(): Promise<void> {
     db.close();
   }
 }
+
 export async function clearDemoData(): Promise<void> {
   const db = await openDatabase();
   try {
@@ -157,6 +177,18 @@ export async function clearDemoData(): Promise<void> {
   } finally {
     db.close();
   }
+}
+
+// Generates an empty ledger specifically to indicate a blank slate on testnet loads
+export function makeEmptyLedger(): Ledger {
+  return {
+    governancePub: '',
+    domainSeparator: '',
+    issuers: [],
+    issuedBy: {},
+    revoked: [],
+    verificationCount: 0,
+  };
 }
 
 export function makeDemoLedger(): Ledger {

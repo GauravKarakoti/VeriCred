@@ -37,7 +37,6 @@ export default function IssueCredentialForm() {
       <div><p className="text-[10px] font-extrabold uppercase tracking-[.18em] text-indigo-300">01 / issuance</p><h2 className="mt-1 text-lg font-extrabold tracking-tight text-white">Issue a credential</h2><p className="mt-1 text-xs text-slate-500">Private details stay in the local demo vault. The ledger receives a commitment only.</p></div>
       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-indigo-300/15 bg-indigo-300/[.07] text-indigo-200"><FilePlus2 size={18} /></span>
     </div>
-    {wallet.appMode === 'testnet' ? <div className="rounded-xl border border-red-400/20 bg-red-400/[.05] p-4 text-xs leading-5 text-red-100">Issuance disabled. Testnet requires generated contract artifacts, deployed address, a Lace adapter, and a reviewed proof setup. This build does not fabricate a network transaction.</div> :
       <form onSubmit={(event) => void onSubmit(event)} className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block text-[11px] font-bold text-slate-400">Registered issuer
@@ -69,7 +68,6 @@ export default function IssueCredentialForm() {
         {message && <p role="status" className="break-all rounded-lg border border-green-400/20 bg-green-400/5 px-3 py-2 text-xs text-green-200"><ShieldCheck size={13} className="mr-1 inline" />{message}</p>}
         <button disabled={busy || !holderCommitment.trim() || !license.trim() || !board.trim() || !expiryDate} className="btn-primary flex h-10 w-full items-center justify-center gap-2 rounded-lg text-xs font-extrabold"><FilePlus2 size={15} />{busy ? 'Issuing locally…' : 'Issue credential'}</button>
       </form>
-    }
     {receipt && <div className="mt-4"><PrivacyReceipt circuit="issueCredential" /></div>}
   </section>;
 }
