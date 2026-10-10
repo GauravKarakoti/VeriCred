@@ -19,6 +19,10 @@
     "test:watch": "vitest",
     "demo": "tsx scripts/demo.ts",
     "seed:issuers": "tsx scripts/seed-issuers.ts",
+    "frontend:dev": "yarn --cwd frontend dev",
+    "frontend:build": "yarn --cwd frontend build",
+    "frontend:preview": "yarn --cwd frontend preview",
+    "postinstall": "npm install --prefix frontend",
     "lint": "tsc --noEmit && eslint . --ext .ts",
     "test:e2e": "tsx scripts/e2e-check.ts"
   },

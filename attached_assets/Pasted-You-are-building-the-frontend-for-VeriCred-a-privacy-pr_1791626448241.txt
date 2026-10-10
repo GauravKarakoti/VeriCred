@@ -1,0 +1,353 @@
+You are building the frontend for VeriCred, a privacy-preserving credential
+verification dApp on the Midnight blockchain. Wave 1 (the Compact contract +
+CLI demo + tests) is already complete. Your job is Wave 2: a React + TypeScript
+frontend that replaces the CLI demo with a real, wallet-connected product.
+
+Do NOT modify anything in `contracts/` or `scripts/`. Only add files under
+`frontend/` and update the root `package.json` scripts. If you must touch
+`contracts/managed/`, treat it as read-only generated output.
+
+═══════════════════════════════════════════════════════════════════════════
+1. WHAT VERICRED DOES (30-second version)
+═══════════════════════════════════════════════════════════════════════════
+
+Healthcare professionals (nurses, doctors) hold credentials (RN license, MD
+certification). Employers (hospitals) need to verify those credentials. Today
+that means handing over a license number and DOB to every employer — massive
+privacy leak.
+
+VeriCred lets a professional prove "I hold a valid, non-revoked RN license"
+WITHOUT revealing their name, license number, or expiry date. The proof is a
+zero-knowledge proof generated locally on the holder's device. The verifier
+sees only a boolean `true` + an on-chain commitment.
+
+Three roles, three portals:
+  • ISSUER    — a medical board. Registers, issues credentials, revokes them.
+  • HOLDER    — the professional. Holds credentials privately, generates proofs.
+  • VERIFIER  — a hospital HR office. Requests a proof, sees a boolean result.
+
+═══════════════════════════════════════════════════════════════════════════
+2. EXISTING REPO STRUCTURE (do not break this)
+═══════════════════════════════════════════════════════════════════════════
+
+vericred/
+├── .github/workflows/ci.yml
+├── contracts/
+│   ├── vericred.compact              # The contract (3 circuits)
+│   ├── witnesses.ts                  # Witness provider
+│   ├── private-state.ts              # VeriCredPrivateState type
+│   ├── __tests__/
+│   │   ├── harness.ts                # VeriCredHarness — deploy + call
+│   │   ├── vericred.test.ts          # 11 functional tests
+│   │   ├── privacy.test.ts           # 6 adversarial privacy tests
+│   │   └── util.ts                   # bytes32() helper
+│   └── managed/                      # (generated) compiled artifacts
+│       └── vericred/contract/index.js   # exports: Contract, Credential,
+│                                        #   CredentialType, Ledger
+├── scripts/
+│   ├── demo.ts                       # Wave 1 CLI demo
+│   ├── deploy.ts
+│   └── seed-issuers.ts
+├── docs/
+│   ├── architecture.md
+│   └── privacy-model.md
+├── .env.example
+├── .gitignore
+├── LICENSE                           # Apache 2.0
+├── package.json                      # yarn, type: module
+├── tsconfig.json
+└── README.md
+
+You will ADD:
+
+frontend/
+├── index.html
+├── vite.config.ts
+├── tailwind.config.ts
+├── postcss.config.js
+├── tsconfig.json
+├── package.json                      # separate from root
+└── src/
+    ├── main.tsx
+    ├── App.tsx
+    ├── index.css
+    ├── components/  (see §5)
+    ├── lib/         (see §4)
+    ├── hooks/       (see §4)
+    └── types.ts
+
+═══════════════════════════════════════════════════════════════════════════
+3. CONTRACT INTERFACE (read from contracts/managed/vericred/contract/index.js)
+═══════════════════════════════════════════════════════════════════════════
+
+PUBLIC LEDGER FIELDS (read-only from the frontend):
+  governancePub:      Uint8Array (32 bytes)
+  domainSeparator:    Uint8Array (32 bytes)
+  issuers:            Set<Uint8Array>
+  issuedBy:           Map<Uint8Array, Uint8Array>   // commitment -> issuerPub
+  revoked:            Set<Uint8Array>
+  verificationCount:  bigint
+
+CIRCUITS (callable from the frontend):
+  registerIssuer(issuerPub: Uint8Array): void
+  deregisterIssuer(issuerPub: Uint8Array): void
+  issueCredential(
+    holderCommitment: Uint8Array,
+    credentialType:   CredentialType,   // enum: RN=0, MD=1, LPN=2, EMT=3, CUSTOM=4
+    licenseNumber:    Uint8Array,
+    issuingBoard:     Uint8Array,
+    issueDate:        bigint,
+    expiryDate:       bigint
+  ): Uint8Array                          // returns the credential commitment
+  proveCredential(
+    requirementId: Uint8Array,
+    requiredType:  CredentialType,
+    currentEpoch:  bigint
+  ): boolean
+  revokeCredential(credentialCommitment: Uint8Array): void
+
+PRIVATE STATE (never leaves the browser):
+  credential:        Credential | null
+  userSecret:        Uint8Array
+  issuerSecret:      Uint8Array
+  governanceSecret:  Uint8Array
+
+Credential struct:
+  { licenseNumber, issuingBoard, issueDate, expiryDate,
+    credentialType, holderCommitment, issuerPub }
+
+WITNESSES (implemented in contracts/witnesses.ts — reuse, don't reimplement):
+  getCredential, getUserSecretKey, getIssuerSecretKey, getGovernanceSecret
+
+═══════════════════════════════════════════════════════════════════════════
+4. WHAT TO BUILD — src/lib/ and src/hooks/
+═══════════════════════════════════════════════════════════════════════════
+
+lib/midnight.ts
+  Thin wrapper around @midnight-ntwrk/midnight-js. Exports:
+    - connectContract(address, privateState) -> Contract instance
+    - readLedger() -> Ledger snapshot
+    - submitCircuit(name, args) -> tx receipt
+  The contract address comes from VITE_CONTRACT_ADDRESS (see .env).
+  If VITE_MIDNIGHT_MODE === "demo", return a MockContract that replays the
+  same behavior in-memory (see §6 Demo Mode). This is critical — the demo must
+  work without a wallet, without a proof server, without a network.
+
+lib/lace.ts
+  Lace wallet adapter.
+    - isLaceInstalled(): boolean
+    - connect(): Promise<{ address, publicKey, api }>
+    - signTx(tx): Promise<...>
+    - disconnect()
+  Detect window.cardano?.lace. If missing, expose a "Connect Demo Wallet"
+  fallback that uses a locally-generated keypair stored in IndexedDB.
+
+lib/storage.ts
+  Encrypted credential vault in IndexedDB.
+    - saveCredential(credential): Promise<void>
+    - loadCredential(): Promise<Credential | null>
+    - clearVault(): Promise<void>
+  Use AES-GCM. Derive the key from a signature over a fixed message from the
+  connected wallet. If no wallet, use a WebCrypto-generated key stored in
+  IndexedDB with a clear "Demo Mode — not encrypted" warning in the UI.
+
+lib/proof.ts
+  Proof generation helpers.
+    - generateProof(requirement) -> { nullifier, commitment, result }
+    - buildRequirement({ credentialType, requireValid, allowedIssuers })
+      -> { id: Uint8Array, ... }
+  Show a three-phase progress callback: "Collecting witness" ->
+  "Running circuit" -> "Serializing proof". Wave 1 measured ~0.4s in sim;
+  show a smooth progress animation regardless.
+
+lib/disclosure.ts  ← IMPORTANT — this is the trust-building feature
+  A declarative manifest of what each circuit discloses.
+    export const DISCLOSURE_MANIFEST = {
+      issueCredential: {
+        disclosed: ["Issuer public key", "Credential commitment", "Credential type"],
+        private:   ["Holder identity", "License number", "Issuing board",
+                    "Issue date", "Expiry date"],
+      },
+      proveCredential: {
+        disclosed: ["Verification result (true)", "Nullifier", "Credential commitment"],
+        private:   ["Holder identity", "License number", "Issuing board",
+                    "Issue date", "Expiry date"],
+      },
+      revokeCredential: {
+        disclosed: ["Credential commitment"],
+        private:   ["Holder identity", "Link between commitment and holder"],
+      },
+    }
+  The UI renders this in the "What will they see?" panel and the privacy
+  receipts. Keep it as the single source of truth so the preview can never
+  drift from what the contract actually does.
+
+hooks/useWallet.ts
+  Returns { connected, address, publicKey, connect, disconnect, mode }
+  mode is "lace" | "demo" | "disconnected".
+
+hooks/useContract.ts
+  Returns { ledger, call, refresh }
+  ledger refreshes after every successful call.
+
+hooks/useProof.ts
+  Returns { generate, status, progress, reset }
+  status: "idle" | "collecting" | "proving" | "serializing" | "done" | "error"
+
+═══════════════════════════════════════════════════════════════════════════
+5. WHAT TO BUILD — src/components/
+═══════════════════════════════════════════════════════════════════════════
+
+Layout/
+  Navbar.tsx           — logo, network badge, wallet connect button
+  RoleSwitcher.tsx     — Issuer / Holder / Verifier tab switcher (also routable)
+  Layout.tsx           — shell with Navbar + RoleSwitcher + <Outlet/>
+
+Issuer/
+  IssuerDashboard.tsx     — top-level page. Shows: registered issuers list
+                            (from ledger.issuers), stats (issued count from
+                            ledger.issuedBy.size, revoked count from
+                            ledger.revoked.size, verifications from
+                            ledger.verificationCount), and the two panels below.
+  IssueCredentialForm.tsx — holder commitment input, credential type dropdown
+                            (RN/MD/LPN/EMT/Custom), license number, issuing
+                            board, issue date, expiry date. On submit:
+                            call issueCredential(). Show PrivacyReceipt.
+  RevocationPanel.tsx     — paste a commitment, click Revoke, call
+                            revokeCredential(). Show updated revoked set size
+                            and a tx link.
+
+Holder/
+  WalletView.tsx        — the credential vault. Shows CredentialCard or an
+                          empty state ("No credentials yet — ask your issuer
+                          to issue one").
+  CredentialCard.tsx    — one credential. Shows type, issuer (truncated), a
+                          locally-computed "valid until" status, a green
+                          shield icon with tooltip "Your license number and
+                          expiry are never shared", and a "Prove" button.
+  ProveDialog.tsx       — modal. Requirement builder (preset templates:
+                          "Active RN license in good standing",
+                          "Board-certified MD, no revocations",
+                          "EMT cert valid within 30 days", plus custom).
+                          Shows ProofProgress. On success, shows the
+                          attestation string + QR code + a "What will they
+                          see?" panel that renders DISCLOSURE_MANIFEST.
+  ShareProof.tsx        — QR code + copyable attestation string +
+                          "What will they see?" disclosure panel.
+
+Verifier/
+  VerifierPortal.tsx    — top-level page. Requirement builder + ProofScanner
+                          + VerificationResult + local verification history.
+  RequirementBuilder.tsx— select credential type + validity + optional issuer
+                          restriction. Produces a Requirement object.
+  ProofScanner.tsx      — scan QR (use qr-scanner or html5-qrcode) or paste
+                          attestation string. Parse into { nullifier,
+                          commitment, result, requirementId }.
+  VerificationResult.tsx— big green check or red X. Shows requirement,
+                          issuer verified, revocation status, on-chain proof
+                          link, and the line "This verification is
+                          privacy-preserving. The holder's identity, license
+                          number, and expiry date were not shared."
+
+Shared/
+  PrivacyReceipt.tsx    — reusable panel: "Disclosed on-chain" list (cyan)
+                          and "Kept private" list (yellow, with lock icon).
+                          Takes a circuit name, reads DISCLOSURE_MANIFEST.
+  ProofProgress.tsx     — three-phase animated progress with a shield icon.
+  LedgerBadge.tsx       — network badge + contract address + explorer link.
+  EmptyState.tsx
+  CopyButton.tsx
+  Tooltip.tsx
+
+═══════════════════════════════════════════════════════════════════════════
+6. DEMO MODE — THIS IS NON-NEGOTIABLE
+═══════════════════════════════════════════════════════════════════════════
+
+Judges must be able to run the frontend WITHOUT installing Lace, WITHOUT
+Docker, WITHOUT a proof server, WITHOUT a live network.
+
+When VITE_MIDNIGHT_MODE === "demo" (the default):
+  - lib/midnight.ts returns a MockContract implementing every circuit
+    in-memory. Use the same logic as contracts/__tests__/harness.ts —
+    you can import VeriCredHarness directly if it works in the browser,
+    otherwise reimplement the pure functions.
+  - lib/lace.ts generates a random keypair in IndexedDB.
+  - lib/proof.ts skips real proof generation and returns a synthetic
+    nullifier = H(commitment || requirementId || domainSeparator) after a
+    600ms fake delay so the progress animation is visible.
+  - The Navbar shows a yellow "Demo Mode" badge.
+  - The WalletView seeds 2 demo credentials on first load so the holder
+    portal is not empty.
+
+When VITE_MIDNIGHT_MODE === "testnet":
+  - Connect to the real contract at VITE_CONTRACT_ADDRESS.
+  - Require Lace. Show a clear "Install Lace" screen if missing.
+
+A toggle in the Navbar lets the user switch modes at runtime. Default is demo.
+
+═══════════════════════════════════════════════════════════════════════════
+7. STACK + CONVENTIONS
+═══════════════════════════════════════════════════════════════════════════
+
+- Vite + React 18 + TypeScript (strict)
+- Tailwind CSS for styling. Dark theme by default (Midnight = moonlit night).
+  Palette:
+    bg-base:    #0a0e1a
+    bg-panel:   #111827
+    accent:     #6366f1  (indigo — Midnight brand-ish)
+    disclosed:  #22d3ee  (cyan — "this goes on-chain")
+    private:    #fbbf24  (amber — "this stays private")
+    success:    #22c55e
+    danger:     #ef4444
+- lucide-react for icons
+- react-router-dom for the three portals (/issuer, /holder, /verifier)
+- qrcode.react for QR generation, qr-scanner for QR scanning
+- No Redux. Use React Context for wallet + contract, hooks for everything else.
+- No component library (no MUI, no shadcn) — hand-rolled Tailwind components
+  so the design is distinctive.
+- Every action that touches the contract must show a PrivacyReceipt after.
+  This is the product's core differentiator — make it impossible to miss.
+
+═══════════════════════════════════════════════════════════════════════════
+8. ROOT package.json SCRIPTS TO ADD
+═══════════════════════════════════════════════════════════════════════════
+
+"frontend:dev":   "yarn --cwd frontend dev",
+"frontend:build": "yarn --cwd frontend build",
+"frontend:preview": "yarn --cwd frontend preview"
+
+═══════════════════════════════════════════════════════════════════════════
+9. .env.example — APPEND THESE
+═══════════════════════════════════════════════════════════════════════════
+
+# ─── Frontend ────────────────────────────────────────────────────────────────
+VITE_MIDNIGHT_MODE=demo            # demo | testnet
+VITE_CONTRACT_ADDRESS=             # required only when VITE_MIDNIGHT_MODE=testnet
+VITE_EXPLORER_URL=https://explorer.testnet.midnight.network
+
+═══════════════════════════════════════════════════════════════════════════
+10. ACCEPTANCE CRITERIA — the build is done when:
+═══════════════════════════════════════════════════════════════════════════
+
+  [ ] `yarn install && yarn frontend:dev` starts the app with zero errors.
+  [ ] In Demo Mode, the Issuer portal shows the demo issuers and can issue
+      a credential to a pasted commitment.
+  [ ] After issuing, a PrivacyReceipt shows exactly what was disclosed vs.
+      kept private, matching DISCLOSURE_MANIFEST.
+  [ ] The Holder portal shows the issued credential in the vault.
+  [ ] The "Prove" dialog runs a proof (fake delay in demo), shows the
+      three-phase progress, then renders the "What will they see?" panel.
+  [ ] The Verifier portal accepts the attestation string and shows a green
+      verification result with the privacy-preserving footer.
+  [ ] The Navbar has a working Demo/Testnet toggle and a wallet connect
+      button that works in demo mode without Lace installed.
+  [ ] `yarn frontend:build` succeeds with no TypeScript errors.
+  [ ] No file under contracts/ or scripts/ was modified.
+
+Start by scaffolding frontend/ with Vite, then build in this order:
+  types.ts -> lib/disclosure.ts -> lib/storage.ts -> lib/lace.ts ->
+  lib/midnight.ts -> lib/proof.ts -> hooks/ -> Layout -> Issuer portal ->
+  Holder portal -> Verifier portal -> polish.
+
+When you finish, print a short summary of every file you created and the
+exact commands to run the frontend.
