@@ -14,7 +14,7 @@
  * what is disclosed, what stays private, and where the compiler enforces it.
  */
 import { randomBytes } from 'node:crypto';
-import { VeriCredHarness, randomActors } from '../contracts/__tests__/harness.js';
+import { VeriCredHarness, randomActors } from '../src/__tests__/harness';
 import { CredentialType } from '../contracts/managed/vericred/contract/index.js';
 
 const BOLD = '\x1b[1m';

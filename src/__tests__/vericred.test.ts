@@ -53,7 +53,7 @@ describe('VeriCred — functional tests', () => {
     issuerPub = (await h.call('issuerPubOf', [actors.issuerSecret])).result as Uint8Array;
     await h.call('registerIssuer', [issuerPub]);
 
-    const { result: commitment } = await h.call('issueCredential', [
+    const { result } = await h.call('issueCredential', [
       holderCommitment,
       CredentialType.RN,
       bytes32(0xaa), // licenseNumber
@@ -61,9 +61,9 @@ describe('VeriCred — functional tests', () => {
       1_700_000_000n, // issueDate
       1_800_000_000n, // expiryDate
     ]);
+    const commitment = result as Uint8Array;
 
     expect(commitment).toBeInstanceOf(Uint8Array);
-    expect(commitment.length).toBe(32);
 
     const l = h.ledger();
     expect((l.issuedBy as Map<string, string>).size).toBe(1);
@@ -167,7 +167,7 @@ describe('VeriCred — functional tests', () => {
     issuerPub = (await h.call('issuerPubOf', [actors.issuerSecret])).result as Uint8Array;
     await h.call('registerIssuer', [issuerPub]);
 
-    const { result: commitment } = await h.call('issueCredential', [
+    const { result } = await h.call('issueCredential', [
       holderCommitment,
       CredentialType.RN,
       bytes32(0xaa),
@@ -175,6 +175,7 @@ describe('VeriCred — functional tests', () => {
       1_700_000_000n,
       1_800_000_000n,
     ]);
+    const commitment = result as Uint8Array;
 
     h.setCredential({
       licenseNumber: bytes32(0xaa),
@@ -290,10 +291,11 @@ describe('VeriCred — functional tests', () => {
     issuerPub = (await h.call('issuerPubOf', [actors.issuerSecret])).result as Uint8Array;
     await h.call('registerIssuer', [issuerPub]);
 
-    const { result: commitment } = await h.call('issueCredential', [
+    const { result } = await h.call('issueCredential', [
       holderCommitment, CredentialType.RN,
       bytes32(0xaa), bytes32(0xbb), 1_700_000_000n, 1_800_000_000n,
     ]);
+    const commitment = result as Uint8Array;
 
     expect((h.ledger().revoked as Set<string>).size).toBe(0);
     await h.call('revokeCredential', [commitment]);

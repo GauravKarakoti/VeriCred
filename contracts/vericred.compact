@@ -6,7 +6,6 @@ import CompactStandardLibrary;
 
 // =============================================================================
 //  VeriCred — Privacy-Preserving Credential Verification Network
-//  Wave 1 — Core contract
 //
 //  Privacy invariant:
 //    No witness-derived value reaches the public ledger without an explicit
@@ -24,22 +23,11 @@ import CompactStandardLibrary;
 //  Public ledger state
 // -----------------------------------------------------------------------------
 
-/** Governance public key — the only party allowed to register issuers. */
 export ledger governancePub: Bytes<32>;
-
-/** Domain separator — prevents cross-protocol proof replay. */
 export ledger domainSeparator: Bytes<32>;
-
-/** Registered issuers. Public by design: verifiers must know who is trusted. */
 export ledger issuers: Set<Bytes<32>>;
-
-/** commitment -> issuerPub. Lets an issuer prove it issued a given credential. */
 export ledger issuedBy: Map<Bytes<32>, Bytes<32>>;
-
-/** Revoked credential commitments. Public set; only the commitment is stored. */
 export ledger revoked: Set<Bytes<32>>;
-
-/** Monotonic count of successful verifications. Analytics only. Zero PII. */
 export ledger verificationCount: Counter;
 
 
@@ -76,16 +64,9 @@ export struct Credential {
 //  Witnesses — the private-state interface
 // -----------------------------------------------------------------------------
 
-/** Returns the holder's credential from private state. */
 witness getCredential(): Credential;
-
-/** Returns the holder's secret key. Never leaves the device. */
 witness getUserSecretKey(): Bytes<32>;
-
-/** Returns the issuer's secret key. Never leaves the issuer's device. */
 witness getIssuerSecretKey(): Bytes<32>;
-
-/** Returns the governance secret. Only used in the constructor + register/revoke. */
 witness getGovernanceSecret(): Bytes<32>;
 
 
@@ -93,7 +74,6 @@ witness getGovernanceSecret(): Bytes<32>;
 //  Internal helpers (not exported — not callable from outside the contract)
 // -----------------------------------------------------------------------------
 
-/** [API] persistentHash over Bytes<32> — verify signature against your toolchain. */
 circuit holderCommitmentOf(secret: Bytes<32>): Bytes<32> {
   return persistentHash<Bytes<32>>(secret);
 }
@@ -122,34 +102,30 @@ circuit credentialCommitmentOf(c: Credential): Bytes<32> {
 constructor() {
   governancePub = disclose(issuerPubOf(getGovernanceSecret()));
 
-  // Domain separator derived from a fixed constant. "Nothing up my sleeve":
-  // hashing a known constant gives a value nobody can grind for.
   domainSeparator = disclose(
     persistentHash<Bytes<32>>(
-      0x56657269437265642f76312f6d69646e6967687400000000000000000000000000
+      0x00000000000000000000000056657269437265642f76312f6d69646e69676874 as Bytes<32>
     )
   );
 }
 
-
-// -----------------------------------------------------------------------------
-//  Governance circuits
-// -----------------------------------------------------------------------------
-
 export circuit registerIssuer(issuerPub: Bytes<32>): [] {
   const govSecret = getGovernanceSecret();
   assert(issuerPubOf(govSecret) == governancePub, "Not governance");
-  assert(!issuers.member(issuerPub), "Issuer already registered");
-  issuers.insert(issuerPub);
+  
+  const ip = disclose(issuerPub);
+  assert(!issuers.member(ip), "Issuer already registered");
+  issuers.insert(ip);
 }
 
 export circuit deregisterIssuer(issuerPub: Bytes<32>): [] {
   const govSecret = getGovernanceSecret();
   assert(issuerPubOf(govSecret) == governancePub, "Not governance");
-  assert(issuers.member(issuerPub), "Issuer not registered");
-  issuers.remove(issuerPub);
+  
+  const ip = disclose(issuerPub);
+  assert(issuers.member(ip), "Issuer not registered");
+  issuers.remove(ip);
 }
-
 
 // -----------------------------------------------------------------------------
 //  Circuit 1 — issueCredential
@@ -175,17 +151,13 @@ export circuit issueCredential(
   issueDate: Uint<64>,
   expiryDate: Uint<64>
 ): Bytes<32> {
-
-  // 1. Caller must be a registered issuer.
   const issuerSecret = getIssuerSecretKey();
   const issuerPub = issuerPubOf(issuerSecret);
-  assert(issuers.member(issuerPub), "Issuer not registered");
-
-  // 2. Sanity check on the validity window.
+  const ip = disclose(issuerPub); // Disclose immediately
+  assert(issuers.member(ip), "Issuer not registered");
   assert(expiryDate > issueDate, "Expiry must be after issue date");
 
-  // 3. Build the credential. All fields here are private inputs.
-  const credential: Credential = {
+  const credential = Credential {
     licenseNumber: licenseNumber,
     issuingBoard: issuingBoard,
     issueDate: issueDate,
@@ -195,14 +167,8 @@ export circuit issueCredential(
     issuerPub: issuerPub
   };
 
-  // 4. Derive the commitment. One-way; leaks nothing about the inputs.
   const commitment = credentialCommitmentOf(credential);
-
-  // 5. Disclose ONLY the commitment and the issuer pub.
-  //    issuedBy maps commitment -> issuer, so an issuer can later prove
-  //    it is the authority that issued a given credential.
   const c = disclose(commitment);
-  const ip = disclose(issuerPub);
   issuedBy.insert(c, ip);
 
   return c;
@@ -230,38 +196,28 @@ export circuit proveCredential(
   requiredType: CredentialType,
   currentEpoch: Uint<64>
 ): Boolean {
-
-  // --- 1. Load private state ------------------------------------------------
   const credential = getCredential();
   const userSecret = getUserSecretKey();
 
-  // --- 2. The credential must belong to the caller --------------------------
   assert(
     credential.holderCommitment == holderCommitmentOf(userSecret),
     "Credential does not belong to this holder"
   );
 
-  // --- 3. The issuer must still be registered -------------------------------
-  assert(issuers.member(credential.issuerPub), "Unknown issuer");
-
-  // --- 4. The credential must not be expired --------------------------------
-  //     expiryDate stays private; only the boolean comparison leaks.
+  const ip = disclose(credential.issuerPub);
+  assert(issuers.member(ip), "Unknown issuer");
   assert(credential.expiryDate > currentEpoch, "Credential expired");
-
-  // --- 5. The credential must be of the required type -----------------------
   assert(credential.credentialType == requiredType, "Wrong credential type");
-
-  // --- 6. The credential must exist on-chain and not be revoked -------------
   const commitment = credentialCommitmentOf(credential);
   const c = disclose(commitment);
 
+  assert(issuedBy.member(c), "Credential was never issued");
   const owner = issuedBy.lookup(c);
-  assert(owner.is_some, "Credential was never issued");
-  assert(owner.value == credential.issuerPub, "Issuer mismatch");
+  assert(owner == ip, "Issuer mismatch");
 
   assert(!revoked.member(c), "Credential revoked");
 
-  // --- 7. Nullifier — prevents replay of the same proof ---------------------
+  // --- Nullifier — prevents replay of the same proof ---------------------
   //     Scoped to (commitment, requirement, domain). Two different verifiers
   //     asking for two different requirements see two unlinkable nullifiers.
   const nullifier = persistentHash<Vector<3, Bytes<32>>>([
@@ -271,7 +227,7 @@ export circuit proveCredential(
   ]);
   disclose(nullifier);
 
-  // --- 8. Emit the result ---------------------------------------------------
+  // --- Emit the result ---------------------------------------------------
   //     We disclose `true` because a false result reverts above. A verifier
   //     seeing a mined transaction knows the circuit reached this point.
   verificationCount.increment(1);
@@ -294,15 +250,16 @@ export circuit proveCredential(
 
 export circuit revokeCredential(credentialCommitment: Bytes<32>): [] {
   const issuerSecret = getIssuerSecretKey();
-  const issuerPub = issuerPubOf(issuerSecret);
+  
+  const ip = disclose(issuerPubOf(issuerSecret));
+  const c = disclose(credentialCommitment);
 
-  assert(issuers.member(issuerPub), "Issuer not registered");
-  assert(!revoked.member(credentialCommitment), "Already revoked");
+  assert(issuers.member(ip), "Issuer not registered");
+  assert(!revoked.member(c), "Already revoked");
 
-  // Only the authority that issued the credential can revoke it.
-  const owner = issuedBy.lookup(credentialCommitment);
-  assert(owner.is_some, "Credential not found");
-  assert(owner.value == issuerPub, "Only the issuing authority can revoke");
+  assert(issuedBy.member(c), "Credential not found");
+  const owner = issuedBy.lookup(c);
+  assert(owner == ip, "Only the issuing authority can revoke");
 
-  revoked.insert(credentialCommitment);
+  revoked.insert(c);
 }

@@ -1,58 +1,45 @@
+#!/usr/bin/env tsx
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 Gaurav Karakoti
 /**
- * Deploy vericred contract to a Midnight network (undeployed by default; use --network preview|preprod for public networks).
+ * Deploy vericred contract to a Midnight network.
  *
- * Non-interactive: scaffold → npm run setup runs straight through.
- * No readline prompts, no .midnight-seed file.
+ * Usage:
+ *   npm run deploy -- --network preview
+ *   npm run setup          # Non-interactive scaffold for undeployed devnet (default)
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { resolveNetwork, getOrCreateWallet, formatWalletBackupNotice, recordDeployment } from './network';
-import { createWallet, persistWalletState, unshieldedToken, type WalletContext } from './wallet';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocket } from 'ws';
 import * as Rx from 'rxjs';
+import { randomBytes } from 'node:crypto'; 
+import { Buffer } from 'node:buffer';
 
-// Midnight SDK imports
+import { resolveNetwork, getOrCreateWallet, formatWalletBackupNotice, recordDeployment } from './network';
+import { createWallet, persistWalletState, unshieldedToken, type WalletContext } from './wallet';
+
 import { deployContract } from '@midnight-ntwrk/midnight-js-contracts';
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
 import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
+import * as ledger from '@midnight-ntwrk/midnight-js-protocol/ledger';
+
+import { VeriCredHarness, randomActors } from './__tests__/harness.js';
+import { createPrivateState } from './private-state.js'; 
+import { witnesses } from './witnesses.js';              
 
 // @ts-expect-error Required for wallet sync
 globalThis.WebSocket = WebSocket;
 
-// Identifier under which this contract's private state is stored. The
-// vericred contract has no witnesses, so its private state is empty ({}).
 const PRIVATE_STATE_ID = 'helloWorldPrivateState';
-
-// Upper bound on the DUST wait. A healthy local devnet produces DUST within
-// seconds of registration; anything approaching this means the node, the
-// wallet's NIGHT balance, or the faucet is the real problem, and failing with
-// that message beats hanging.
 const DUST_WAIT_TIMEOUT_MS = 5 * 60 * 1000;
 
-// ─── Network configuration ─────────────────────────────────────────────────────
-//
-// Resolved from --network flag, .midnight-state.json, or defaulting to
-// 'undeployed' (local devnet). Switch networks with: npm run network <name>
-
-const { network, config: networkConfig } = resolveNetwork();
-const WALLET = getOrCreateWallet(network);
-const SEED = WALLET.seed;
-{
-  const notice = formatWalletBackupNotice(WALLET, network);
-  if (notice) console.log(notice);
-}
-
 // ─── Proof server readiness ────────────────────────────────────────────────────
-//
-// The proof-server image is distroless and has no shell, so it can't run a
-// container-side healthcheck. Poll it from the host before we submit anything
-// that needs proofs.
 
-async function waitForProofServer(maxAttempts = 60, delayMs = 2000): Promise<boolean> {
+async function waitForProofServer(networkConfig: any, maxAttempts = 60, delayMs = 2000): Promise<boolean> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       await fetch(networkConfig.proofServer, {
@@ -74,40 +61,51 @@ async function waitForProofServer(maxAttempts = 60, delayMs = 2000): Promise<boo
   return false;
 }
 
-// ─── Compiled contract loading ─────────────────────────────────────────────────
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const zkConfigPath = path.resolve(__dirname, '..', 'contracts', 'managed', 'vericred');
-const contractPath = path.join(zkConfigPath, 'contract', 'index.js');
-
-if (!fs.existsSync(contractPath)) {
-  console.error('\n❌ Contract not compiled! Run: npm run compile\n');
-  process.exit(1);
-}
-
-const HelloWorld = await import(pathToFileURL(contractPath).href);
-
-const compiledContract = CompiledContract.make('vericred', HelloWorld.Contract).pipe(
-  CompiledContract.withVacantWitnesses,
-  CompiledContract.withCompiledFileAssets(zkConfigPath),
-);
-
 // ─── Providers ─────────────────────────────────────────────────────────────────
 
-async function createProviders(walletCtx: WalletContext) {
-  // The SDK requires the private-state password to be at least 16 characters.
-  // The default below is a placeholder for local devnet only — set a strong
-  // password via PRIVATE_STATE_PASSWORD when you move to a non-local target.
+async function createProviders(walletCtx: WalletContext, networkConfig: any, zkConfigPath: string) {
   const privateStatePassword = process.env.PRIVATE_STATE_PASSWORD?.trim() || 'Local-Devnet-Development-Placeholder-1';
 
+  let coinPublicKey: string;
+  let encryptionPublicKey: string;
+
+  try {
+    const rawCoin = (walletCtx.shieldedSecretKeys as any).coinPublicKey;
+    if (!rawCoin) throw new Error("coinPublicKey is undefined on shieldedSecretKeys");
+    
+    if (typeof rawCoin === 'string') {
+      coinPublicKey = rawCoin;
+    } else if ((rawCoin as any) instanceof Uint8Array || Buffer.isBuffer(rawCoin) || (rawCoin as any).buffer) {
+      coinPublicKey = ledger.decodeCoinPublicKey(rawCoin as any);
+    } else if (typeof (rawCoin as any).value === 'string') {
+      coinPublicKey = (rawCoin as any).value;
+    } else {
+      coinPublicKey = String(rawCoin);
+    }
+
+    const rawEnc = (walletCtx.shieldedSecretKeys as any).encryptionPublicKey;
+    if (!rawEnc) throw new Error("encryptionPublicKey is undefined on shieldedSecretKeys");
+
+    if (typeof rawEnc === 'string') {
+      encryptionPublicKey = rawEnc;
+    } else if ((rawEnc as any) instanceof Uint8Array || Buffer.isBuffer(rawEnc) || (rawEnc as any).buffer) {
+      encryptionPublicKey = Buffer.from(rawEnc as any).toString('hex');
+    } else if (typeof (rawEnc as any).value === 'string') {
+      encryptionPublicKey = (rawEnc as any).value;
+    } else {
+      encryptionPublicKey = String(rawEnc);
+    }
+  } catch (err: any) {
+    throw new Error(`CRITICAL: Failed to extract and format Zswap public keys: ${err.message}`);
+  }
+
   const walletProvider = {
-    // In Midnight.js 4.1.x the WalletProvider interface returns the key objects
-    // (CoinPublicKey / EncPublicKey) directly — no longer hex strings.
-    getCoinPublicKey: () => walletCtx.shieldedSecretKeys.coinPublicKey,
-    getEncryptionPublicKey: () => walletCtx.shieldedSecretKeys.encryptionPublicKey,
+    getCoinPublicKey: () => coinPublicKey,
+    getEncryptionPublicKey: () => encryptionPublicKey,
+    coinPublicKey,
+    encryptionPublicKey,
+
     async balanceTx(tx: any, ttl?: Date) {
-      // balanceUnboundTransaction -> finalizeRecipe is the complete balancing
-      // path in wallet-sdk 1.x; the earlier explicit signRecipe step is gone.
       const recipe = await walletCtx.wallet.balanceUnboundTransaction(
         tx,
         { shieldedSecretKeys: walletCtx.shieldedSecretKeys, dustSecretKey: walletCtx.dustSecretKey },
@@ -132,21 +130,67 @@ async function createProviders(walletCtx: WalletContext) {
     proofProvider: httpClientProofProvider(networkConfig.proofServer, zkConfigProvider),
     walletProvider,
     midnightProvider: walletProvider,
-  };
+    coinPublicKey,
+    encryptionPublicKey,
+  } as any;
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
+  const cliTarget = process.argv[2];
+
+  // ─── Fast Path: In-Memory Simulator ──────────────────────────────────────────
+  if (cliTarget === 'sim') {
+    console.log('\n╔══════════════════════════════════════════════════════════════╗');
+    console.log(`║  Deploy vericred.compact to Simulator`);
+    console.log('╚══════════════════════════════════════════════════════════════╝\n');
+
+    const actors = randomActors();
+    const h = await VeriCredHarness.deploy(actors);
+
+    console.log(`Deployed vericred.compact to sim`);
+    console.log(`  governancePub:   ${Buffer.from(actors.governanceSecret).toString('hex').slice(0, 16)}…`);
+    console.log(`  domainSeparator: ${Buffer.from(h.ledger().domainSeparator as Uint8Array).toString('hex').slice(0, 16)}…`);
+    
+    console.log('\nFor a real deployment, run without the "sim" argument to wire into the MidnightWalletProvider.');
+    console.log('See docs/architecture.md § Deployment for the exact steps.\n');
+    return;
+  }
+
+  // ─── Full Path: Real Network Deployment (devnet/testnet/etc.) ────────────────
+  const { network, config: networkConfig } = resolveNetwork();
+  
   console.log('\n╔══════════════════════════════════════════════════════════════╗');
   console.log(`║  Deploy vericred to ${network}`);
   console.log('╚══════════════════════════════════════════════════════════════╝\n');
 
-  const seed = SEED;
+  const WALLET = getOrCreateWallet(network);
+  const SEED = WALLET.seed;
+  
+  const notice = formatWalletBackupNotice(WALLET, network);
+  if (notice) console.log(notice);
+
+  // ─── Compiled contract loading ───
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const zkConfigPath = path.resolve(__dirname, '..', 'contracts', 'managed', 'vericred');
+  const contractPath = path.join(zkConfigPath, 'contract', 'index.js');
+
+  if (!fs.existsSync(contractPath)) {
+    console.error('\n❌ Contract not compiled! Run: npm run compile\n');
+    process.exit(1);
+  }
+
+  const HelloWorld = await import(pathToFileURL(contractPath).href);
+
+  const compiledContract = CompiledContract.make('vericred', HelloWorld.Contract).pipe(
+    (CompiledContract.withWitnesses as any)(witnesses), 
+    (CompiledContract.withCompiledFileAssets as any)(zkConfigPath),
+  );
 
   console.log('─── Wallet setup ───────────────────────────────────────────────\n');
   console.log('  Creating wallet...');
-  const walletCtx = await createWallet({ network, networkConfig, seed });
+  const walletCtx = await createWallet({ network, networkConfig, seed: SEED });
   const restoredCount = Object.values(walletCtx.restored).filter(Boolean).length;
   if (restoredCount > 0) {
     console.log(`  Restored ${restoredCount}/3 child wallets from .midnight-wallet-state — sync will resume from saved point.`);
@@ -162,9 +206,8 @@ async function main() {
   }, 5000);
   const state = await walletCtx.wallet.waitForSyncedState();
   clearInterval(syncInterval);
-  process.stdout.write('\r  ✓ Synced with network.                                      \n');
+  process.stdout.write('\r  ✓ Synced with network.                                        \n');
 
-  // Persist sync state now so a later deploy failure doesn't waste the sync work.
   await persistWalletState(network, walletCtx);
 
   const address = walletCtx.unshieldedKeystore.getBech32Address();
@@ -181,13 +224,7 @@ async function main() {
     process.exit(1);
   }
 
-  // Faucet poll for public networks. The wallet has 0 tNIGHT until the user
-  // funds the address from the network's faucet. The display balance is
-  // authoritative here (unlike DUST, tNIGHT shows up immediately once the
-  // faucet tx lands).
   if (network !== 'undeployed' && networkConfig.faucet) {
-    // Same balance idiom used by check-balance.ts:
-    //   state.unshielded.balances[unshieldedToken().raw] ?? 0n
     const initialBalance = await Rx.firstValueFrom(walletCtx.wallet.state().pipe(
       Rx.filter((s) => s.isSynced),
     ));
@@ -223,7 +260,6 @@ async function main() {
     }
   }
 
-  // Register for DUST.
   console.log('─── DUST Token Setup ───────────────────────────────────────────\n');
   const dustState = await Rx.firstValueFrom(walletCtx.wallet.state().pipe(Rx.filter((s) => s.isSynced)));
 
@@ -232,10 +268,6 @@ async function main() {
   );
   if (unregisteredUtxos.length > 0) {
     console.log(`  Registering ${unregisteredUtxos.length} NIGHT UTXOs for DUST generation...`);
-    // The signDustRegistration callback (3rd arg) already produces a recipe
-    // with N signatures matching N inputs. Do NOT call signRecipe again — that
-    // would double-sign and the chain rejects with InputsSignaturesLengthMismatch
-    // (Custom error 192). Matches upstream example-counter and example-bboard.
     const recipe = await walletCtx.wallet.registerNightUtxosForDustGeneration(
       unregisteredUtxos,
       walletCtx.unshieldedKeystore.getPublicKey(),
@@ -253,9 +285,6 @@ async function main() {
           Rx.throttleTime(5000),
           Rx.filter((s) => s.isSynced),
           Rx.filter((s) => s.dust.balance(new Date()) > 0n),
-          // Without this the wait is unbounded: if DUST never generates the
-          // stream simply never emits, and the process hangs with no diagnostic
-          // until something external kills it (in CI, the job timeout).
           Rx.timeout({ first: DUST_WAIT_TIMEOUT_MS }),
         ),
       );
@@ -276,74 +305,62 @@ async function main() {
   }
   console.log('  DUST tokens ready!\n');
 
-  // Deploy.
   console.log('─── Deploy Contract ────────────────────────────────────────────\n');
 
   console.log('  Checking proof server...');
-  const proofServerReady = await waitForProofServer();
+  const proofServerReady = await waitForProofServer(networkConfig);
   if (!proofServerReady) {
     console.log('\n  ❌ Proof server not responding. Run: docker compose up -d\n');
     await walletCtx.wallet.stop();
     process.exit(1);
   }
-  process.stdout.write('\r  Proof server ready!                                 \n');
+  process.stdout.write('\r  Proof server ready!                                   \n');
 
   console.log('  Setting up providers...');
-  const providers = await createProviders(walletCtx);
+  const providers = await createProviders(walletCtx, networkConfig, zkConfigPath);
 
-  // The wallet's reported DUST balance is a *time-projection* of what its
-  // registered NIGHT will eventually generate; the tx-builder spends only
-  // what the next block's timestamp accounts for, which lags wall-clock by
-  // ~1 block on a fresh devnet. Sleeping ~1 block-time before attempt 1
-  // closes that gap in the common case; the retry loop covers outliers.
   process.stdout.write('  Generating DUST...');
   await new Promise((r) => setTimeout(r, 6000));
   process.stdout.write(' done.\n');
 
   console.log('  Deploying contract...\n');
 
-  // Fallback timing. The 6s pre-pause above handles the common case; this
-  // loop covers genuine outliers (slow blocks, proof-server worker-pool
-  // settling). Earlier 2s retries caused CI flakes where attempt 2's /prove
-  // hit the proof-server before it had drained attempt 1's state — 5s gives
-  // it room to settle between attempts. 20 × 5 = 100s total budget.
+  const governanceSecret = randomBytes(32);
+  const userSecret = randomBytes(32);
+  const issuerSecret = randomBytes(32);
+  
+  console.log('  ⚠️  SAVE THIS GOVERNANCE SECRET TO REGISTER ISSUERS LATER:');
+  console.log(`  ${governanceSecret.toString('hex')}\n`);
+
+  const initialPrivateState = createPrivateState(userSecret, issuerSecret, governanceSecret);
+  const rawSigningKey = ledger.sampleSigningKey();
+  const signingKey = typeof rawSigningKey === 'string' ? rawSigningKey : (rawSigningKey as any).value;
+
   const MAX_RETRIES = 20;
   const RETRY_DELAY_MS = 5000;
   let deployed: Awaited<ReturnType<typeof deployContract>> | undefined;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      // Midnight.js 4.1.x supplies private state via privateStateId +
-      // initialPrivateState (empty here — the vericred contract has no
-      // witnesses). args is the contract constructor's arguments: empty for
-      // vericred's no-arg constructor. (Statically-typed contracts can omit
-      // args entirely; this script loads the contract dynamically, so the
-      // conditional args type widens to any[] and an explicit [] is required.)
       deployed = await deployContract(providers, {
         compiledContract: compiledContract as any,
         args: [],
         privateStateId: PRIVATE_STATE_ID,
-        initialPrivateState: {},
-      });
+        initialPrivateState, 
+        coinPublicKey: (providers as any).coinPublicKey,
+        signingKey,
+      } as any);
       break;
     } catch (err: any) {
       const errMsg = err?.message || err?.toString() || '';
       const errCause = err?.cause?.message || err?.cause?.toString() || '';
       const fullError = `${errMsg} ${errCause}`;
 
-      // DUST shortage is the most common transient failure on a fresh devnet —
-      // check it BEFORE proof-server connectivity, because dust-balancing errors
-      // can surface through proof-server-shaped messages (the wallet talks to
-      // the proof-server while building the dust portion of the tx).
       const isDustShortage =
         fullError.includes('Not enough Dust') ||
         fullError.includes('Insufficient Funds') ||
         fullError.includes('could not balance dust');
 
-      // Quiet the first DUST-shortage retry: it's the expected race between
-      // wall-clock projection and block-timestamp accounting and the loud
-      // `Insufficient Funds: <huge number>` message scares first-time users.
-      // Real failures still get the full diagnostic from attempt 2 onward.
       if (!(isDustShortage && attempt === 1)) {
         console.error(`\n  Attempt ${attempt} error: ${errMsg}`);
         if (errCause && errCause !== errMsg) console.error(`  Cause: ${errCause}`);
@@ -387,7 +404,7 @@ async function main() {
   console.log(`  Contract Address: ${contractAddress}\n`);
 
   recordDeployment(network, contractAddress, address.toString());
-  console.log('  Saved to .midnight-state.json\n');
+  console.log('Saved to .midnight-state.json\n');
 
   await persistWalletState(network, walletCtx);
   await walletCtx.wallet.stop();
