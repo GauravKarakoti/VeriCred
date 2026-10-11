@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Activity, Building2, Check, CirclePlus, FileCheck2, Fingerprint, ShieldAlert } from 'lucide-react';
+import { Activity, Building2, Check, CirclePlus, FileCheck2, Fingerprint, Loader2, ShieldAlert } from 'lucide-react';
 import { useContract } from '../../hooks/useContract';
 import { useWallet } from '../../hooks/useWallet';
 import IssueCredentialForm from './IssueCredentialForm';
@@ -9,11 +9,12 @@ import CopyButton from '../Shared/CopyButton';
 import PrivacyReceipt from '../Shared/PrivacyReceipt';
 
 export default function IssuerDashboard() {
-  const { ledger, registerIssuer, ready } = useContract(); // Pull ready
-  const { appMode, connected, connect } = useWallet(); // Pull wallet state
+  const { ledger, registerIssuer, ready } = useContract();
+  const { appMode, connected, connect } = useWallet();
   const [name, setName] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false); // <-- Added loading state
   
   const stats = [
     { label: 'Credentials issued', value: Object.keys(ledger.issuedBy).length, icon: FileCheck2, tint: 'text-indigo-200 bg-indigo-400/10 border-indigo-400/15' },
@@ -22,9 +23,21 @@ export default function IssuerDashboard() {
   ];
 
   const addIssuer = async () => {
-    setNotice(''); setError('');
-    try { await registerIssuer(name); setNotice(`${name.trim()} registered in the ledger.`); setName(''); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not register issuer.'); }
+    if (!name.trim() || loading) return;
+    setNotice(''); 
+    setError('');
+    setLoading(true); // <-- Activate loading spinner
+    
+    try { 
+      await registerIssuer(name); 
+      setNotice(`${name.trim()} registered in the ledger.`); 
+      setName(''); 
+    }
+    catch (cause) { 
+      setError(cause instanceof Error ? cause.message : 'Could not register issuer.'); 
+    } finally {
+      setLoading(false); // <-- Deactivate loading spinner
+    }
   };
 
   return <div className="space-y-6">
@@ -74,7 +87,27 @@ export default function IssuerDashboard() {
             </div>
             <div className="mt-5 border-t border-midnight-line pt-4">
               <label htmlFor="issuer-name" className="mb-1.5 block text-[10px] font-bold text-slate-400">Register an issuer</label>
-              <div className="flex gap-2"><input id="issuer-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Oregon Board of Nursing" className="field h-10 min-w-0 px-3 text-xs" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addIssuer(); } }} /><button type="button" disabled={!name.trim()} onClick={() => void addIssuer()} aria-label="Register issuer" className="btn-quiet grid h-10 w-10 shrink-0 place-items-center rounded-lg text-indigo-200"><CirclePlus size={16} /></button></div>
+              <div className="flex gap-2">
+                <input 
+                  id="issuer-name" 
+                  value={name} 
+                  onChange={(e) => setName(e.target.value)} 
+                  placeholder="e.g. Oregon Board of Nursing" 
+                  disabled={loading}
+                  className="field h-10 min-w-0 px-3 text-xs disabled:opacity-50" 
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addIssuer(); } }} 
+                />
+                <button 
+                  type="button" 
+                  disabled={!name.trim() || loading} 
+                  onClick={() => void addIssuer()} 
+                  aria-label="Register issuer" 
+                  className="btn-quiet grid h-10 w-10 shrink-0 place-items-center rounded-lg text-indigo-200 disabled:opacity-50"
+                >
+                  {loading ? <Loader2 size={16} className="animate-spin text-indigo-300" /> : <CirclePlus size={16} />}
+                </button>
+              </div>
+              {loading && <p role="status" className="mt-2 text-[10px] text-indigo-300 animate-pulse">Generating ZK proof & submitting transaction...</p>}
               {notice && <p role="status" className="mt-2 text-[10px] text-green-300">{notice}</p>}
               {error && <p role="alert" className="mt-2 text-[10px] text-red-300">{error}</p>}
               {notice && <div className="mt-4"><PrivacyReceipt circuit="registerIssuer" compact /></div>}

@@ -11,7 +11,7 @@ export default defineConfig({
     topLevelAwait(),
     nodePolyfills({
       globals: {
-        global: false, // <-- Disable the plugin's 'global' polyfill to fix the Wasm binding crash
+        global: false,
       },
     })
   ],
@@ -25,9 +25,16 @@ export default defineConfig({
   },
   preview: { host: '0.0.0.0', port: 5000, strictPort: true },
   
-  // We handle 'global' manually here instead
   define: {
     global: 'globalThis',
+  },
+
+  // 🚨 THE FIX: Force Vite to use a single WASM instance across all folders 🚨
+  resolve: {
+    dedupe: [
+      '@midnight-ntwrk/compact-runtime',
+      '@midnight-ntwrk/midnight-js-protocol'
+    ]
   },
 
   build: {
@@ -47,11 +54,12 @@ export default defineConfig({
       'level',
       'browser-level',
       'abstract-level',
-      '@midnight-ntwrk/midnight-js-level-private-state-provider'
+      'cross-fetch',
+      'fetch-retry' 
     ],
     exclude: [
-      '@midnight-ntwrk/midnight-js-protocol',
-      '@midnight-ntwrk/compact-runtime'
+      '@midnight-ntwrk/compact-runtime',
+      '@midnight-ntwrk/midnight-js-protocol'
     ]
   }
 });

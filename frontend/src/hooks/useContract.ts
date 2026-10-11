@@ -2,7 +2,7 @@ import { createContext, createElement, useContext, useEffect, useMemo, useState,
 import type { Credential, CredentialType, Ledger, VerificationRecord } from '../types';
 import { demoCredentials, loadCredentials, loadHistory, loadLedger, makeDemoLedger, saveCredentials, saveHistory, saveLedger, makeEmptyLedger } from '../lib/storage';
 import { useWallet } from './useWallet';
-import { queryNetworkLedger, submitIssueCredential, submitRegisterIssuer, submitRevokeCredential, computeIssuerPub } from '../lib/midnight';
+import { queryNetworkLedger, submitIssueCredential, submitRegisterIssuer, submitRevokeCredential, computeIssuerPub, storeIssuerName } from '../lib/midnight';
 
 interface IssueInput {
   holderCommitment: string;
@@ -126,8 +126,8 @@ export function ContractProvider({ children }: { children: ReactNode }) {
         // 2. Let the pure circuit compute the true cryptographic public key
         const pubKeyHex = await computeIssuerPub(wallet.api, secretHex);
         
-        // 3. Register the computed public key
         await submitRegisterIssuer(wallet.api, pubKeyHex);
+        storeIssuerName(pubKeyHex, cleanName);
         await syncState();
         return;
       }

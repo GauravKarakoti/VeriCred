@@ -7,7 +7,7 @@ const steps = [
   { id: 'serializing', title: 'Serializing proof', note: 'Preparing shareable attestation' },
 ] as const;
 export default function ProofProgress({ status, progress }: { status: ProofStatus; progress: number }) {
-  if (status === 'idle') return <div className="flex items-center gap-3 rounded-xl border border-indigo-300/15 bg-indigo-400/[.06] p-4 text-xs text-slate-300"><ShieldCheck size={18} className="text-indigo-300" /> Proof generation stays in this browser in a real implementation.</div>;
+  if (status === 'idle') return <div className="flex items-center gap-3 rounded-xl border border-indigo-300/15 bg-indigo-400/[.06] p-4 text-xs text-slate-300"><ShieldCheck size={18} className="text-indigo-300" /> Proof generation stays in this browser.</div>;
   return <div className="space-y-3 rounded-xl border border-midnight-line bg-[#0b1220] p-4">
     {steps.map((step, index) => {
       const active = progress === index + 1 && status !== 'done';

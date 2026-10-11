@@ -29,28 +29,55 @@ async function main(): Promise<void> {
   // 2. Compile the contract (network-agnostic).
   run('npm', ['run', 'compile']);
 
-  // 3. Automatically sync/copy all compiled ZK artifacts to frontend public keys directory
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const zkConfigPath = path.resolve(__dirname, '..', 'contracts', 'managed', 'vericred');
-  const frontendPublicKeysDir = path.resolve(__dirname, '..', 'frontend', 'public', 'keys');
+  const frontendPublicDir = path.resolve(__dirname, '..', 'frontend', 'public');
+  const frontendPublicKeysDir = path.join(frontendPublicDir, 'keys');
+  const frontendPublicZkirDir = path.join(frontendPublicDir, 'zkir');
 
+  // Ensure target directories exist before writing
   if (!fs.existsSync(frontendPublicKeysDir)) {
     fs.mkdirSync(frontendPublicKeysDir, { recursive: true });
   }
+  if (!fs.existsSync(frontendPublicZkirDir)) {
+    fs.mkdirSync(frontendPublicZkirDir, { recursive: true });
+  }
 
   process.stdout.write('→ Copying ZK artifacts to frontend public directory...\n');
-  if (fs.existsSync(zkConfigPath)) {
-    const searchDirs = [zkConfigPath, path.join(zkConfigPath, 'keys')];
-    for (const dir of searchDirs) {
-      if (fs.existsSync(dir)) {
-        const files = fs.readdirSync(dir);
-        for (const file of files) {
-          const srcFile = path.join(dir, file);
-          if (fs.lstatSync(srcFile).isFile()) {
-            const destFile = path.join(frontendPublicKeysDir, file);
-            fs.copyFileSync(srcFile, destFile);
-            process.stdout.write(`  Copied: ${file} -> frontend/public/keys/\n`);
-          }
+  
+  // Copy zkir files
+  const zkirSourceDir = path.join(zkConfigPath, 'zkir');
+  if (fs.existsSync(zkirSourceDir)) {
+    const files = fs.readdirSync(zkirSourceDir);
+    for (const file of files) {
+      const srcFile = path.join(zkirSourceDir, file);
+      if (fs.lstatSync(srcFile).isFile()) {
+        const destFile = path.join(frontendPublicZkirDir, file);
+        fs.copyFileSync(srcFile, destFile);
+        process.stdout.write(`  Copied: ${file} -> frontend/public/zkir/\n`);
+      }
+    }
+  }
+
+  // Copy keys (.prover, .verifier, .pk, .vk)
+  const keysSourceDir = path.join(zkConfigPath, 'keys');
+  if (fs.existsSync(keysSourceDir)) {
+    const files = fs.readdirSync(keysSourceDir);
+    for (const file of files) {
+      const srcFile = path.join(keysSourceDir, file);
+      if (fs.lstatSync(srcFile).isFile()) {
+        // Copy standard file
+        const destFile = path.join(frontendPublicKeysDir, file);
+        fs.copyFileSync(srcFile, destFile);
+        process.stdout.write(`  Copied: ${file} -> frontend/public/keys/\n`);
+
+        // Map modern extensions to legacy SDK extensions (.pk / .vk)
+        if (file.endsWith('.prover')) {
+          const pkDest = path.join(frontendPublicKeysDir, file.replace(/\.prover$/, '.pk'));
+          fs.copyFileSync(srcFile, pkDest);
+        } else if (file.endsWith('.verifier')) {
+          const vkDest = path.join(frontendPublicKeysDir, file.replace(/\.verifier$/, '.vk'));
+          fs.copyFileSync(srcFile, vkDest);
         }
       }
     }
