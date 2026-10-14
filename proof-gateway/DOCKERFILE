@@ -1,15 +1,19 @@
-FROM node:20-alpine
+# Stage 1: Grab the Node.js binary and C++ stdlib from Debian Bookworm
+FROM node:20-bookworm-slim AS node-runtime
+
+# Stage 2: Use the official Midnight Proof Server as the base image
+FROM midnightntwrk/proof-server:8.1.0
+
+# Copy Node.js binary and libstdc++ so Node runs natively alongside the Rust binary
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-runtime /usr/lib/x86_64-linux-gnu/libstdc++.so* /usr/lib/x86_64-linux-gnu/
 
 WORKDIR /app
 
-# Install dependencies
-COPY package*.json ./
-RUN npm install --production
-
-# Copy the proxy logic
-COPY server.js ./
+# Copy the zero-dependency gateway script
+COPY server.js /app/server.js
 
 EXPOSE 8080
 
-# Start the gateway
-CMD ["npm", "start"]
+# Override the base image entrypoint so Node launches both the proxy and proof-server
+ENTRYPOINT ["/usr/local/bin/node", "/app/server.js"]

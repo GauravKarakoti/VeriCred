@@ -1,37 +1,96 @@
-import express from 'express';
-import cors from 'cors';
-import rateLimit from 'express-rate-limit';
-import { createProxyMiddleware } from 'http-proxy-middleware';
+import http from 'node:http';
+import { spawn } from 'node:child_process';
 
-const app = express();
 const PORT = process.env.PORT || 8080;
-// Render will inject the internal URL of the private proof server
-const PROOF_SERVER_URL = process.env.INTERNAL_PROOF_SERVER_URL || 'http://localhost:6300';
-// Lock this down to your Vercel/Netlify frontend URL in production
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*'; 
+const PROOF_PORT = 6300;
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://veri-cred.vercel.app';
 
-// 1. Strict CORS Policy
-app.use(cors({ origin: ALLOWED_ORIGIN }));
-
-// 2. Aggressive Rate Limiting (Protects CPU from DDoS)
-const limiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 5, // Limit each IP to 5 proof requests per minute
-  message: 'Too many ZK proofs requested, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
+// 1. Spawn the official Midnight Proof Server on internal port 6300
+console.log('🚀 Starting internal Midnight Proof Server on port 6300...');
+const proofServer = spawn('midnight-proof-server', ['-v', '--num-workers', '2'], {
+  stdio: 'inherit',
+  env: { ...process.env, RUST_BACKTRACE: 'full' }
 });
-app.use(limiter);
 
-// 3. Proxy all legitimate requests to the internal Midnight server
-app.use('/', createProxyMiddleware({
-  target: PROOF_SERVER_URL,
-  changeOrigin: true,
-  ws: true,
-  logLevel: 'info'
-}));
+proofServer.on('exit', (code, signal) => {
+  console.error(`❌ midnight-proof-server exited with code ${code} (signal: ${signal})`);
+  process.exit(1);
+});
 
-app.listen(PORT, () => {
-  console.log(`🛡️ ZK Proof Gateway running on port ${PORT}`);
-  console.log(`🔀 Proxying to internal proof server: ${PROOF_SERVER_URL}`);
+// 2. Simple in-memory rate limiter (10 requests per minute per IP)
+const rateLimitMap = new Map();
+function isRateLimited(ip) {
+  const now = Date.now();
+  const windowStart = now - 60_000;
+  const timestamps = (rateLimitMap.get(ip) || []).filter((t) => t > windowStart);
+  if (timestamps.length >= 10) return true;
+  timestamps.push(now);
+  rateLimitMap.set(ip, timestamps);
+  return false;
+}
+
+// 3. Create public HTTP Gateway with CORS
+const server = http.createServer((req, res) => {
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGIN === '*' || origin === ALLOWED_ORIGIN) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  // Handle CORS preflight immediately
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  // Healthcheck endpoint for Render so deploy succeeds while S3 params download
+  if (req.url === '/healthz') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('OK');
+    return;
+  }
+
+  // Rate limit only heavy proof generation POST requests
+  if (req.method === 'POST') {
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+    if (isRateLimited(ip)) {
+      res.writeHead(429, { 'Content-Type': 'text/plain' });
+      res.end('Too many ZK proofs requested, please try again in a minute.');
+      return;
+    }
+  }
+
+  // Proxy request to internal Midnight Proof Server (127.0.0.1:6300)
+  const proxyReq = http.request(
+    {
+      hostname: '127.0.0.1',
+      port: PROOF_PORT,
+      path: req.url,
+      method: req.method,
+      headers: req.headers,
+    },
+    (proxyRes) => {
+      res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+      proxyRes.pipe(res, { end: true });
+    }
+  );
+
+  proxyReq.on('error', (err) => {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'Proof server is still warming up or downloading ZK parameters. Try again in 30 seconds.',
+      details: err.message
+    }));
+  });
+
+  req.pipe(proxyReq, { end: true });
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🛡️ ZK Proof Gateway listening on 0.0.0.0:${PORT}`);
+  console.log(`🔀 Forwarding traffic to http://127.0.0.1:${PROOF_PORT}`);
 });
