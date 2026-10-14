@@ -33,17 +33,45 @@ export async function generateProof(
   };
 }
 
-export function serializeAttestation(attestation: ProofAttestation): string {
+export function serializeAttestation(attestation: any): string {
   return JSON.stringify(attestation);
 }
-export function parseAttestation(value: string): ProofAttestation {
-  let parsed: unknown;
-  try { parsed = JSON.parse(value); } catch { throw new Error('This is not valid VeriCred attestation JSON.'); }
-  if (!parsed || typeof parsed !== 'object') throw new Error('Attestation must be a JSON object.');
-  const proof = parsed as Partial<ProofAttestation>;
-  if (proof.version !== 1 || proof.simulated !== true || typeof proof.nullifier !== 'string' || typeof proof.commitment !== 'string'
-    || typeof proof.result !== 'boolean' || typeof proof.requirementId !== 'string') throw new Error('Attestation is missing required demo proof fields.');
-  return proof as ProofAttestation;
+
+export function parseAttestation(value: string): any {
+  let parsed: any;
+  try { 
+    parsed = JSON.parse(value); 
+  } catch { 
+    throw new Error('This is not valid JSON. Please paste a valid cryptographic proof payload.'); 
+  }
+  
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Attestation must be a JSON object.');
+  }
+
+  // Handle Real Cryptographic Proofs from the Midnight network
+  if (parsed.txHash && parsed.requirement && parsed.timestamp) {
+    parsed.requirementId = parsed.requirement.id;
+    
+    // 🚀 THE FIX: Strip '0x' prefixes so the UI can match them against the raw Indexer ledger keys!
+    parsed.commitment = parsed.credential?.commitment?.replace(/^0x/, '');
+    
+    if (parsed.credential && parsed.credential.issuerPub) {
+      parsed.credential.issuerPub = parsed.credential.issuerPub.replace(/^0x/, '');
+    }
+    
+    parsed.nullifier = parsed.txHash;
+    parsed.result = true;
+    return parsed;
+  }
+
+  // Handle legacy/simulated proofs
+  if (parsed.version === 1 && parsed.simulated === true && typeof parsed.commitment === 'string') {
+    parsed.commitment = parsed.commitment.replace(/^0x/, '');
+    return parsed;
+  }
+
+  throw new Error('Payload is missing required ZK proof fields (txHash, requirement context, timestamp).');
 }
 function delay(ms: number): Promise<void> { return new Promise((resolve) => window.setTimeout(resolve, ms)); }
 async function sha256(input: string): Promise<string> {

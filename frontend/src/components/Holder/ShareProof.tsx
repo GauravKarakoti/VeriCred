@@ -16,7 +16,7 @@ export default function ShareProof({ attestation, onClose }: { attestation: Proo
     <div className="grid gap-4 sm:grid-cols-[180px_1fr]">
       <div className="flex flex-col items-center justify-center rounded-xl border border-midnight-line bg-white p-4">
         <QRCodeSVG value={value} size={148} level="M" includeMargin />
-        <span className="mt-2 inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-slate-500"><QrCode size={12} /> VeriCred demo payload</span>
+        <span className="mt-2 inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-slate-500"><QrCode size={12} /> VeriCred payload</span>
       </div>
       <div className="min-w-0 rounded-xl border border-midnight-line bg-[#0b1220] p-4">
         <div className="mb-2 flex items-center justify-between gap-2"><p className="text-[10px] font-extrabold uppercase tracking-[.14em] text-slate-400">Attestation payload</p><CopyButton value={value} label="Copy attestation" /></div>

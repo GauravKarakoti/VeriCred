@@ -56,7 +56,7 @@ export interface VerificationRecord {
   commitment: string;
   issuerVerified: boolean;
   revoked: boolean;
-  simulated: true;
+  simulated: boolean;
 }
 
 export type ProofStatus = 'idle' | 'collecting' | 'proving' | 'serializing' | 'done' | 'error';

@@ -17,6 +17,7 @@
     "@midnight-ntwrk/midnight-js-level-private-state-provider": "^4.1.1",
     "@midnight-ntwrk/midnight-js-protocol": "^4.1.1",
     "dotenv": "^18.0.7",
+    "html5-qrcode": "^2.3.8",
     "lucide-react": "^0.468.0",
     "qr-scanner": "^1.4.2",
     "qrcode.react": "^4.2.0",
