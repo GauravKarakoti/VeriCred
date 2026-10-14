@@ -8,7 +8,6 @@ import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import { Contract, ledger as decodeLedger, pureCircuits } from '../../../contracts/managed/vericred/contract/index.js';
 import type { Ledger } from '../types';
 import { Buffer } from 'buffer';
-import "dotenv/config";
 import { Transaction } from '@midnight-ntwrk/ledger-v7';
 
 setNetworkId('preview'); 
@@ -230,7 +229,7 @@ export async function submitRevokeCredential(walletApi: any, commitmentHex: stri
   await contract.callTx.revokeCredential(Buffer.from(commitmentHex.replace('0x', '').trim(), 'hex'));
 }
 
-export async function computeIssuerPub(walletApi: any, secretHex: string): Promise<string> {
+export async function computeIssuerPub(_walletApi: any, secretHex: string): Promise<string> {
   const cleanHex = secretHex.replace('0x', '').trim();
   const result = pureCircuits.getIssuerPub(Buffer.from(cleanHex, 'hex'));
   return Buffer.from(result).toString('hex');

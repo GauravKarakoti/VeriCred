@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Activity, ChevronDown, Fingerprint, LogOut, ShieldCheck } from 'lucide-react';
+import { Activity, ChevronDown, LogOut, ShieldCheck } from 'lucide-react';
 import { useWallet } from '../../hooks/useWallet';
 import LedgerBadge from '../Shared/LedgerBadge';
 

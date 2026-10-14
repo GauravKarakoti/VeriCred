@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router-dom';
-import { LockKeyhole, ShieldAlert } from 'lucide-react';
+import { LockKeyhole } from 'lucide-react';
 import Navbar from './Navbar';
 import RoleSwitcher from './RoleSwitcher';
 import { useWallet } from '../../hooks/useWallet';

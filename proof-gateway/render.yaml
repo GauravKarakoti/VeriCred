@@ -1,0 +1,17 @@
+services:
+  # 1. The INTERNAL Proof Server (No public access, strictly isolated)
+  - type: pserv
+    name: midnight-proof-server
+    env: docker
+    image: ghcr.io/midnight-ntwrk/proof-server:latest
+    
+  # 2. The PUBLIC Gateway (Rate limits, CORS, routes to internal server)
+  - type: web
+    name: vericred-proof-gateway
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: INTERNAL_PROOF_SERVER_URL
+        value: http://midnight-proof-server:6300
+      - key: ALLOWED_ORIGIN
+        value: https:

@@ -70,7 +70,7 @@ export async function connect(): Promise<ConnectedWallet> {
   }
 }
 
-export async function signTx(tx: unknown, api?: any): Promise<unknown> {
+export async function signTx(_tx: unknown, api?: any): Promise<unknown> {
   if (!api) {
     throw new Error('Wallet API not available. Please reconnect.');
   }

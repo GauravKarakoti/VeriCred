@@ -32,10 +32,10 @@ export default function ProofScanner({ onAttestation }: { onAttestation: (attest
         setError('');
         setScanning(false);
       },
-      (errorMessage) => {
+      (_errorMessage) => {
         // Ignore continuous stream parse errors
       }
-    ).catch((cause) => {
+    ).catch((_cause) => {
       setError('Could not start camera. Please ensure permissions are granted.');
       setScanning(false);
     });

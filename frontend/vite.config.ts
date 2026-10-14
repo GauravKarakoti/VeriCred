@@ -1,14 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import wasm from 'vite-plugin-wasm';
-import topLevelAwait from 'vite-plugin-top-level-await';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 export default defineConfig({
   plugins: [
     react(),
     wasm(),
-    topLevelAwait(),
     nodePolyfills({
       globals: {
         global: false,
@@ -29,8 +27,11 @@ export default defineConfig({
     global: 'globalThis',
   },
 
-  // 🚨 THE FIX: Force Vite to use a single WASM instance across all folders 🚨
   resolve: {
+    alias: {
+      // 🚀 THE FIX: Polyfill WebSocket for isomorphic-ws in production build
+      'isomorphic-ws': '/src/ws-polyfill.ts',
+    },
     dedupe: [
       '@midnight-ntwrk/compact-runtime',
       '@midnight-ntwrk/midnight-js-protocol'
@@ -38,8 +39,11 @@ export default defineConfig({
   },
 
   build: {
-    target: 'esnext',
+    target: 'esnext', // Native support for top-level await
     sourcemap: false,
+    commonjsOptions: {
+      transformMixedEsModules: true,
+    }
   },
   css: {
     devSourcemap: false,

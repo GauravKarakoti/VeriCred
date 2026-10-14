@@ -2,13 +2,11 @@ import { useState } from 'react';
 import { BadgeCheck, CalendarDays, ChevronDown, ChevronUp, ShieldCheck, Sparkles } from 'lucide-react';
 import type { Credential } from '../../types';
 import { useContract } from '../../hooks/useContract';
-import { useWallet } from '../../hooks/useWallet';
 import Tooltip from '../Shared/Tooltip';
 import ProveDialog from './ProveDialog';
 
 export default function CredentialCard({ credential }: { credential: Credential }) {
   const { ledger } = useContract();
-  const { appMode } = useWallet();
   const [open, setOpen] = useState(false);
   const [proving, setProving] = useState(false);
   const issuer = ledger.issuers.find((item) => item.publicKey === credential.issuerPub);

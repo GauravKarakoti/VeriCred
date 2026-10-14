@@ -1,0 +1,15 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm install --production
+
+# Copy the proxy logic
+COPY server.js ./
+
+EXPOSE 8080
+
+# Start the gateway
+CMD ["npm", "start"]
