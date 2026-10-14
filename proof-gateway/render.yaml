@@ -14,4 +14,4 @@ services:
       - key: INTERNAL_PROOF_SERVER_URL
         value: http://midnight-proof-server:6300
       - key: ALLOWED_ORIGIN
-        value: https:
+        value: https://veri-cred.vercel.app
