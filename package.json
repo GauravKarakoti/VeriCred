@@ -6,7 +6,7 @@
   "author": "",
   "license": "Apache-2.0",
   "scripts": {
-    "compile": "compact compile contracts/vericred.compact contracts/managed/vericred",
+    "compile": "compact compile contracts/vericred.compact contracts/managed/vericred && cp contracts/managed/vericred/contract/index.js frontend/src/lib/managed-vericred-contract.js",
     "build": "npx tsc --noEmit || true",
     "setup": "npx tsx src/setup.ts",
     "deploy": "npx tsx src/deploy.ts",

@@ -5,7 +5,7 @@ import { FetchZkConfigProvider } from '@midnight-ntwrk/midnight-js-fetch-zk-conf
 import { findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
 import { CompiledContract } from '@midnight-ntwrk/midnight-js-protocol/compact-js';
 import { setNetworkId } from '@midnight-ntwrk/midnight-js-network-id'; 
-import { Contract, ledger as decodeLedger, pureCircuits } from '../../../contracts/managed/vericred/contract/index.js';
+import { Contract, ledger as decodeLedger, pureCircuits } from './managed-vericred-contract.js';
 import type { Ledger } from '../types';
 import { Buffer } from 'buffer';
 import { Transaction } from '@midnight-ntwrk/ledger-v7';
@@ -21,7 +21,6 @@ const GOVERNANCE_SECRET = import.meta.env.VITE_GOVERNANCE_SECRET;
 let cachedContract: any = null;
 let cachedWalletAddress: string = ''; 
 
-// Wrap all dynamic witnesses in a constant object reference.
 const dynamicWitnesses = {
   credential: null as any,
   userSecret: new Uint8Array(32) as any,
@@ -61,7 +60,6 @@ export async function getMidnightContract(walletApi: any) {
     return cachedContract;
   }
 
-  // Bind live secrets so witnesses are ready immediately
   dynamicWitnesses.userSecret = await deriveWalletUserSecret(unshieldedAddress);
   dynamicWitnesses.governanceSecret = getCleanGovSecret();
 
@@ -72,7 +70,6 @@ export async function getMidnightContract(walletApi: any) {
   const fromHex = (h: string) => new Uint8Array(Buffer.from(h, 'hex'));
 
   const shortAddress = unshieldedAddress.slice(-12);
-  // Bumped to v3 to guarantee a clean slate
   const STATE_ID = `vericred-state-${shortAddress}-${CONTRACT_ADDRESS?.slice(0, 8)}-v3`;
 
   const walletProvider = {
@@ -117,17 +114,15 @@ export async function getMidnightContract(walletApi: any) {
     getGovernanceSecret: (context: any) => [context.state, dynamicWitnesses.governanceSecret],
   };
 
-  const compiledContract = CompiledContract.make('vericred', Contract).pipe(
-    CompiledContract.withWitnesses(dummyWitnesses),
-    CompiledContract.withCompiledFileAssets('/keys/'), 
+  const compiledContract = (CompiledContract as any).make('vericred', Contract).pipe(
+    (CompiledContract as any).withWitnesses(dummyWitnesses),
+    (CompiledContract as any).withCompiledFileAssets('/keys/'), 
   );
 
   cachedContract = await findDeployedContract(providers as any, {
     contractAddress: CONTRACT_ADDRESS,
     compiledContract,
     privateStateId: STATE_ID,
-    // 🚀 THE FIX: Because the contract has no `private` state variables, 
-    // the schema is exactly `{}`. This satisfies the SDK instantly!
     initialPrivateState: {} as any
   });
   
@@ -158,7 +153,8 @@ export async function queryNetworkLedger(): Promise<Ledger> {
   return {
     governancePub: Buffer.from(ledgerState.governancePub).toString('hex'),
     domainSeparator: Buffer.from(ledgerState.domainSeparator).toString('hex'),
-    issuers: Array.from(ledgerState.issuers).map((pub: Uint8Array) => {
+    // 🚀 Explicitly type cast iterables as Uint8Array[] arrays
+    issuers: Array.from(ledgerState.issuers as unknown as Uint8Array[]).map((pub: Uint8Array) => {
       const pubKeyHex = Buffer.from(pub).toString('hex');
       return {
         publicKey: pubKeyHex,
@@ -167,7 +163,7 @@ export async function queryNetworkLedger(): Promise<Ledger> {
       };
     }),
     issuedBy, 
-    revoked: Array.from(ledgerState.revoked).map((c: Uint8Array) => Buffer.from(c).toString('hex')),
+    revoked: Array.from(ledgerState.revoked as unknown as Uint8Array[]).map((c: Uint8Array) => Buffer.from(c).toString('hex')),
     verificationCount: Number(ledgerState.verificationCount),
   };
 }
