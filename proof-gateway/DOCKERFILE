@@ -1,19 +1,16 @@
-# Stage 1: Grab the Node.js binary and C++ stdlib from Debian Bookworm
-FROM node:20-bookworm-slim AS node-runtime
+# Stage 1: Build a 100% static Go binary (zero dynamic library dependencies)
+FROM golang:1.22-alpine AS builder
 
-# Stage 2: Use the official Midnight Proof Server as the base image
+WORKDIR /build
+COPY main.go .
+RUN go mod init proof-gateway && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /vericred-gateway main.go
+
+# Stage 2: Official Midnight Proof Server image
 FROM midnightntwrk/proof-server:8.1.0
 
-# Copy Node.js binary and libstdc++ so Node runs natively alongside the Rust binary
-COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
-COPY --from=node-runtime /usr/lib/x86_64-linux-gnu/libstdc++.so* /usr/lib/x86_64-linux-gnu/
-
-WORKDIR /app
-
-# Copy the zero-dependency gateway script
-COPY server.js /app/server.js
+COPY --from=builder /vericred-gateway /usr/local/bin/vericred-gateway
 
 EXPOSE 8080
 
-# Override the base image entrypoint so Node launches both the proxy and proof-server
-ENTRYPOINT ["/usr/local/bin/node", "/app/server.js"]
+ENTRYPOINT ["/usr/local/bin/vericred-gateway"]
